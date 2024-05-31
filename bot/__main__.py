@@ -1,13 +1,17 @@
 import asyncio
 import logging
-from pyrogram import Client, idle, types
 
+from pyrogram import Client, idle, types
 from config import Config
+
 
 async def main():
     import bot
+    bot.gemini = bot.GeminiChat(Config.GEMINI_API_KEY)
+    bot.db = bot.Database()
+    await bot.db.setup_database()
     bot.Bot = bot = Client(
-        "PaLM-Bot",
+        "GeminiBot",
         api_id=Config.API_ID,
         api_hash=Config.API_HASH,
         bot_token=Config.BOT_TOKEN,

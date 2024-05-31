@@ -1,89 +1,151 @@
 import logging
+from datetime import datetime, timezone
 from enum import Enum
-from typing import Optional
+from typing import List, Optional
 
-from pony import orm
-from datetime import datetime
+import databases
+import ormar
+import sqlalchemy
+from google.generativeai import ChatSession
 
 from config import Config
 
 logger = logging.getLogger(__name__)
-db = orm.Database()
 
+base_ormar_config = ormar.OrmarConfig(
+    database=databases.Database(Config.DATABASE_URI),
+    metadata=sqlalchemy.MetaData(),
+    engine=sqlalchemy.create_engine(Config.DATABASE_URI),
+)
 
-class User(db.Entity):
-    __table__ = "users"
-    id = orm.PrimaryKey(int, size=64)
-    name = orm.Required(str)
-    username = orm.Optional(str, nullable=True)
-    started_at = orm.Required(datetime, default=datetime.utcnow)
+class Role(str, Enum):
+    USER = ChatSession._USER_ROLE
+    MODEL = ChatSession._MODEL_ROLE
 
-
-class History(db.Entity):
-    __table__ = "history"
-    chat_id = orm.Required(int, size=64)
-    author = orm.Required(str)
-    name = orm.Required(str)
-    message = orm.Required(str)
-
-
-if not any((Config.DB_HOST, Config.DB_USER, Config.DB_PASSWORD, Config.DB_NAME)):
-    logger.warning("External Database not configured. Using SQLite instead.")
-    db.bind(provider="sqlite", filename="data.db", create_db=True)
-
-else:
-    db.bind(
-        provider="postgres",
-        host=Config.DB_HOST,
-        user=Config.DB_USER,
-        password=Config.DB_PASSWORD,
-        database=Config.DB_NAME,
-        sslmode="require",
+class User(ormar.Model):
+    ormar_config = base_ormar_config.copy(
+        tablename="user",
     )
-    logger.info("Postgres Database configured.")
+    id = ormar.Integer(primary_key=True)
+    name = ormar.String(max_length=255)
+    username = ormar.String(max_length=255, nullable=True)
+    started_at = ormar.DateTime(default=lambda: datetime.now(timezone.utc))
 
-db.generate_mapping(create_tables=True)
 
-# ==============================================================================
-# https://docs.ponyorm.org/integration_with_fastapi.html#async-and-db-session ||
-# ==============================================================================
+class File(ormar.Model):
+    ormar_config = base_ormar_config.copy(
+        tablename="file",
+    )
+    id = ormar.Integer(primary_key=True, autoincrement=True)
+    mime_type = ormar.String(max_length=255)
+    url = ormar.String(max_length=255)
 
-async def add_user(id: int, name: str, username: Optional[str]):
-    with orm.db_session:
-        if not User.exists(id=id):
-            try:
-                User(id=id, name=name, username=username)
-            except (orm.IntegrityError, orm.TransactionIntegrityError):
-                return False
+
+class Part(ormar.Model):
+    ormar_config = base_ormar_config.copy(
+        tablename="part",
+    )
+    id = ormar.Integer(primary_key=True, autoincrement=True)
+    text = ormar.Text(nullable=True)
+    file = ormar.ForeignKey(File, nullable=True)
+
+
+class History(ormar.Model):
+    ormar_config = base_ormar_config.copy(
+        tablename="history",
+    )
+    id = ormar.Integer(primary_key=True, autoincrement=True)
+    chat_id = ormar.Integer()
+    role: Enum = ormar.Enum(enum_class=Role)
+    parts: List[Part] = ormar.ManyToMany(Part)
+
+
+class DatabaseWrapper:
+    def __init__(self):
+        self.is_init = False
+        
+    async def setup_database(self):
+        logger.info("Setting up database...")
+        await base_ormar_config.database.connect()
+        base_ormar_config.metadata.create_all(base_ormar_config.engine)
+        logger.info("Database setup successful.")
+        self.is_init = True
+    
+    async def get_user(self, id: int) -> Optional[User]:
+        return await User.objects.get_or_none(id=id)
+    
+    async def aou_user(self, id: int, name: str, username: Optional[str], **kwargs)  -> bool:
+        """
+        Adds or updates a user.
+        returns `True` if user is added, False if user is updated.
+        TODO: Welcome the user if the the user is starting the bot for the first time.
+        """
+        user = await self.get_user(id)
+        if user:
+            kwargs.pop("started_at", None)
+            await User.objects.filter(id=id).update(username=username, **kwargs)
+            return False
+        else:
+            await User.objects.create(id=id, name=name, username=username, **kwargs)
             return True
-        return False
-
-
-async def set_user_history(user_id: int, name: str, message: str):
-    with orm.db_session:
-        History(chat_id=user_id, name=name, message=message, author="user")
-        db.commit()
-
-
-async def set_response_history(user_id: int, name: str, message: str):
-    with orm.db_session:
-        History(chat_id=user_id, name=name, message=message, author="model")
-        db.commit()
-
-
-async def get_history(user_id: int) -> list[History]:
-    with orm.db_session:
-        return list(
-            reversed(
-                list(
-                    History.select(lambda h: h.chat_id == user_id)
-                    .order_by(orm.desc(History.id))
-                    .limit(20)
-                )
-            )
+    
+    async def set_user_history(
+        self,
+        user_id: int,
+        message: Optional[str] = None,
+        mime_type: Optional[str] = None,
+        url: Optional[str] = None,
+        ):
+        """
+        Set user history.
+        """
+        parts = []
+        if message:
+            parts.append(await Part.objects.create(text=message.strip()))
+        if mime_type and url:
+            parts.append(await Part.objects.create(file=await File.objects.create(mime_type=mime_type, url=url)))
+        
+        history = await History.objects.create(
+            chat_id=user_id,
+            role=Role.USER
         )
+        
+        for part in parts:
+            await history.parts.add(part)
 
+    async def set_response_history(self, user_id: int, message: str):
+        """
+        Set response history.
+        """
+        part = await Part.objects.create(text=message.strip())
+        history = await History.objects.create(
+            chat_id=user_id,
+            role=Role.MODEL,
+        )
+        await history.parts.add(part)
+        
+        
+    async def get_one_history(self, user_id: int) -> Optional[History]:
+        """
+        Get one history of a user.
+        """
+        return await History.objects.filter(chat_id=user_id).select_related("parts").order_by("-id").first()
 
-async def clear_history(user_id: int):
-    with orm.db_session:
-        orm.select(h for h in History if h.chat_id == user_id).delete(bulk=True)
+    async def get_history(self, user_id: int) -> List[History]:
+        """
+        Get history of a user.
+        """
+        
+        return list(
+                    await History.objects.filter(chat_id=user_id)
+                    .select_related(["parts", "parts__file"])
+                    .order_by("id")
+                    .limit(50)
+                    .all()
+                )
+
+    async def clear_history(self, user_id: int):
+        """
+        Clears the history of a user.
+        """
+        await History.objects.filter(chat_id=user_id).delete()

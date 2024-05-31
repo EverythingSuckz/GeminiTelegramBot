@@ -3,8 +3,9 @@ import sys
 
 from pyrogram import Client
 
+from bot.database import DatabaseWrapper as Database
+from bot.gemini import GeminiChat
 from config import Config
-from bot.PaLM import PaLMChat
 
 logging.basicConfig(
     level=logging.INFO,
@@ -19,4 +20,5 @@ logging.basicConfig(
 logging.getLogger("pyrogram").setLevel(logging.ERROR)
 
 Bot: Client = None
-palm = PaLMChat(Config.PALM_API_KEY)
+db: Database = None
+gemini: GeminiChat

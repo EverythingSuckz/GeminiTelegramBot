@@ -1,14 +1,11 @@
 import logging
 from typing import Callable
+
 from cachetools import TTLCache
-from pyrogram import types, filters, enums
+from pyrogram import enums, filters, types
 
 logger = logging.getLogger(__name__)
 
-
-# The PaLM API acts weird sometimes so q quick lazy fix for it
-def trim_response(text: str) -> str:
-    return text[:text.find("USER:") or len(text)].strip()
 
 # This filter is used to check if the message has bot mentioned in it.
 async def mentioned_filter(_, __, message: types.Message):
@@ -42,6 +39,32 @@ def limiter(rate_limit_seconds: float) -> Callable:
                 cache[user_id] = True
         return wrapper
     return decorator
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
