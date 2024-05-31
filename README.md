@@ -44,6 +44,7 @@ python -m bot
 - [ ] Reactions
 - [ ] Give the bot context of chat stickers
 - [ ] Add more features
+- [ ] Rewrite the code to [hydrogram](https://docs.hydrogram.org)
 - [ ] Optimize code
 
 _Based on [pyrogram](https://github.com/pyrogram/pyrogram)._
