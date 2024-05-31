@@ -38,7 +38,12 @@ async def send_handler(c: Client, message: types.Message):
             return
 
     if media:
+        media = getattr(message, media.value, None)
+        if not media:
+            return
         text = text or message.caption or getattr(media, "caption", None)
+        if getattr(media, "file_size", 0) > 10_000_000:
+            return await message.reply("File size is too large. Maximum file size is 10MB.", quote=True)
         path = await c.download_media(message=message)
         mime_type = mimetypes.guess_type(path)[0]
         file = upload_file(path)
