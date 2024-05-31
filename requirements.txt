@@ -4,5 +4,5 @@ tgcrypto
 google-generativeai
 ormar
 asyncpg
-psycopg2
+psycopg2-binary
 aiosqlite
