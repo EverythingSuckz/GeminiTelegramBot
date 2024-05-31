@@ -56,7 +56,11 @@ async def send_handler(c: Client, message: types.Message):
     await message.reply_chat_action(enums.ChatAction.TYPING)
     user_id = message.from_user.id if message.from_user else message.sender_chat.id
     name = message.from_user.first_name if message.from_user else message.sender_chat.title
-    resp = await gemini.get_reponse(database=db, user_id=user_id, name=gfn(message.from_user), message=text, mime_type=mime_type, url=url)
+    
+    try:
+        resp = await gemini.get_reponse(database=db, user_id=user_id, name=gfn(message.from_user), message=text, mime_type=mime_type, url=url)
+    except Exception as e:
+        return await message.reply(f"<b>Opps an error occured</b>\n<code>{e}</code>", parse_mode=enums.ParseMode.HTML, quote=True)
     
     if not resp:
         await message.reply("<i>*AI did not respond*</i>")

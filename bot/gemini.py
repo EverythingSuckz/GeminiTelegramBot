@@ -151,7 +151,7 @@ class GeminiChat:
             response = await session.send_message_async(content)
         except StopCandidateException as e:
             logging.exception(e)
-            return
+            raise e
         
         await asyncio.gather(
             database.set_user_history(user_id, message, mime_type, url),
