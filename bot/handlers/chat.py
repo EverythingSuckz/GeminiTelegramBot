@@ -24,7 +24,7 @@ async def clearhistory_cmd(_, message: types.Message):
     
 
 
-@Bot.on_message(filters.private | (mentioned & filters.group) & filters.incoming, group=2)
+@Bot.on_message((filters.text | filters.photo) & (filters.private | (mentioned & filters.group)) & filters.incoming, group=2)
 @limiter(3)
 async def send_handler(c: Client, message: types.Message):
     text = None
